@@ -1,9 +1,3 @@
----
-editor_options: 
-  markdown: 
-    wrap: 72
----
-
 # Cyclistic Bike-Share Analysis Case Study
 
 ## Overview
@@ -89,3 +83,4 @@ members.
 
 ## 8. Author
 - **Abdullah Aqel** - [LinkedIn Profile Link](https://www.linkedin.com/in/abdullahmohsen/)
+
