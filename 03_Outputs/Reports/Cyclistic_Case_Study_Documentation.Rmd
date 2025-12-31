@@ -1,0 +1,492 @@
+---
+title: "Cyclistic Case Study Documentation"
+author: "Abdullah Mohsen"
+date: "2025-12-13"
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-location: right
+    code-fold: true
+    code-summary: "Show code"
+    number-sections: false
+    smooth-scroll: true
+    self-contained: true
+---
+
+## **Introduction**
+
+This report analyzes *Cyclistic Bike Share* to understand how do annual members and 
+casual rider use the bike share services differently?. The dataset contains trips start/end time, type of customers and the station names. The objective is to identify differences in behaviors and trends to enable data-driven strategies to optimize marketing.
+
+## **Data Description**
+
+  * Origin: Downloaded from Divvy Bikes public data portal, to preview click the [poral](https://divvy-tripdata.s3.amazonaws.com/index.html) and under [license agreement](https://divvybikes.com/data-license-agreement) .
+  * Time Period: January 2019 to March 2019, and January 2020 to March 2020.
+  * File Format: Two CSV files, one per year, available as zip archive from the online portal.
+  * Collection Method: Automatically recorded by Divvys' system and uploaded to the online portal.
+  * Access Details: Publicly accessible via [Divvy online poral](https://divvy-tripdata.s3.amazonaws.com/index.html).
+  * Reliability: the data is highly reliability as it sourced from Devvy bike share service system.
+  * Environment: RStudio for the analysis process and R Markdown for making the report.  Using packages such as *'tidyverse'*, *'dplyr'* for processing and manipulation, *'lubridate'* for date and time, *'hms'* for formatting time-of-day values, 
+*'scales'* for scaling in plots and *'ggplot2'* for visualization.
+
+```{r Environment, echo=TRUE}
+library(tidyverse)
+library(dplyr)
+library(lubridate)
+library(hms)
+library(scales)
+library(kableExtra)
+library(ggplot2)
+```
+
+  * Data Contents: the dataset *trips_2019* has 365,069 observations and 12 variables including start/end date and time, start/end station name and id, and user types,
+  
+```{r Data Inspection, echo=TRUE, warning=FALSE}
+setwd("~/R/Case_Studies/Cyclistic/01_Data/Raw")
+trips_2019 <- read.csv("Divvy_Trips_2019_Q1.csv")
+trips_2020 <- read.csv("Divvy_Trips_2020_Q1.csv")
+str(trips_2019)
+```
+
+and the dataset *trips_2020* has 426,887 observations and 13 variables, also includes start/end date and time, start/end station name and id, and user types.
+
+```{r Preview 2020, echo=TRUE}
+str(trips_2020)
+```
+
+  * Limitation: Data is anonymized to comply with the privacy  regulations. Data given
+is from 2019-2020 first quarter. There are 0.04% NA values occurred in gender in *trips_2019* file, this variable will be excluded as it's not consistent in both  datasets, 
+
+```{r NA values 2019, echo=TRUE}
+colSums(is.na(trips_2019))
+```
+
+there are three NA values in 2020 file, one at end_station_id which will excluded as it's not relevent to this analysis, and two in end_lat and end_lng, these variables will also be excluded as they are not consistent in both  data sources files,
+
+```{r NA values 2020, echo=TRUE}
+colSums(is.na(trips_2020))
+```
+
+and there are no duplicate records found.
+
+```{r Duplicates, echo=TRUE}
+nrow(trips_2019[duplicated(trips_2019),])
+nrow(trips_2020[duplicated(trips_2020),])
+```
+
+## **Processing Data**
+
+ * Standardizing and Processing NA Records: standardizing by keeping relevant variables and discarding NA records for both *trips_2019*, *trips_2020* datasets. 
+
+```{r Relevent columns, echo=TRUE}
+trips_2019_v2 <- trips_2019 %>% 
+  select(trip_id,from_station_id,from_station_name,start_time,to_station_id,
+         to_station_name,end_time,usertype) %>% 
+  na.omit()
+trips_2020_v2 <- trips_2020 %>% 
+  select(ride_id,start_station_id,start_station_name,started_at,end_station_id,
+         end_station_name,ended_at,member_casual) %>% 
+  na.omit()
+```
+
+ * Consistency and Format: 
+   * Creating a function to deal with extracting date and time, calculating trip duration, fixing the negative *trip_length* where *end_time* is after midnight 
+by adding 24h, filtering out records where *start_time* is the same as *end_time*, 
+and return consistent unified column names and formatted data
+
+```{r Clean function, echo=TRUE}
+  #=== Function to extract date\time ===#
+clean_and_duration <- function(
+    df, start_col, end_col, station_from_col, station_to_col, user_col) {
+  df %>%
+    mutate(
+      id = row_number(),
+      start_at = ymd_hms({{ start_col }}),
+      end_at = ymd_hms({{ end_col }}),
+      year = year(start_at),
+      month = month(start_at, label = TRUE, abbr = TRUE),
+      day = wday(start_at, label = TRUE, abbr = TRUE),
+      #=== Keep character string version for display ===#
+      start_time = format(start_at, "%H:%M:%S"),
+      end_time = format(end_at, "%H:%M:%S"),
+      start_station_name = {{ station_from_col }},
+      end_station_name = {{ station_to_col }},
+      user_type = {{ user_col }},
+      #=== Extract hms directly from POSIXct ===#
+      start_hms = as_hms(start_at),
+      end_hms = as_hms(end_at),
+      trip_seconds = case_when(
+        end_hms > start_hms ~ as.numeric(end_hms - start_hms),
+        end_hms < start_hms ~ as.numeric(end_hms - start_hms) + 24 * 3600),
+      trip_length = as_hms(trip_seconds)) %>%
+    select(
+      id, start_station_name, start_at, start_time, year, month, day, user_type,
+      end_station_name, end_at, end_time, trip_length, trip_seconds)}
+```
+
+```{r Cleaned data, echo=TRUE}
+trips_2019_v3 <- clean_and_duration(
+  trips_2019_v2,
+  start_time,
+  end_time,
+  from_station_name,
+  to_station_name,
+  usertype) %>%
+  na.omit()
+
+trips_2020_v3 <- clean_and_duration(
+  trips_2020_v2,
+  started_at,
+  ended_at,
+  start_station_name,
+  end_station_name,
+  member_casual) %>%
+  na.omit()
+```
+  
+   * Appending *trips_2019* dataset and *trips_2020* dataset into *all_trips*
+  
+```{r Append data, echo=TRUE}
+all_trips <- bind_rows(trips_2019_v3,trips_2020_v3)  
+nrow(all_trips[duplicated(all_trips),])
+colSums(is.na(all_trips))
+```
+  
+   * Unifying *user_type* values for *user_type* from *member* and *Subscriber* into *Annual member* and from *casual* and *Customer* into *Casual rider*
+  
+```{r Unifying user_type, echo=TRUE}
+all_trips$user_type <- ifelse(all_trips$user_type %in% c('Subscriber','member'), 
+  'Annual member', 'Casual rider')
+```
+  
+   * Removing special characters found in station names except for *&* and *space* 
+  
+```{r special char, echo=TRUE}
+all_trips_v2 <- all_trips %>% 
+  mutate(start_station_name = gsub("[^[:alnum:]& ]", "", all_trips$start_station_name),
+         end_station_name = gsub("[^[:alnum:]& ]", "", all_trips$end_station_name))
+```
+  
+## **Analysis and Findings**
+
+### **EDA**
+
+ * The total number of trips made and the average ride length is:
+
+```{r Average trip duration, echo=TRUE}
+all_trips_v2 %>%
+  summarise(
+    total_trips = n(),
+    avg_duration_hms = as_hms(round(mean(trip_seconds) / 60) * 60),)
+```
+
+ * The summary of trips and duration for users by year:
+ 
+```{r Summary by year, echo=TRUE}
+all_trips_v2 %>%
+  group_by(year, user_type) %>%
+  summarise(
+    n_trips  = n(),
+    avg_duration_min  = round(mean(trip_seconds / 60), 2), # Minutes, 2 decimals
+    .groups = "drop")
+```
+ 
+ * The weekly summary of trips and duration for the Casual rider:
+ 
+```{r Summary by day, echo=TRUE}
+all_trips_v2 %>%
+  filter(user_type == "Casual rider") %>% 
+  group_by(day) %>%
+  summarise(
+    n_trips  = n(),
+    avg_duration_min  = round(mean(trip_seconds / 60), 2),
+    .groups = "drop") %>% 
+  mutate(
+    day = factor(day, levels = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"))) 
+```
+
+ * The most busiest day of the week by Casual rider: 
+ 
+```{r busiest day, echo=TRUE}
+all_trips_v2 %>%
+  filter(user_type == "Casual rider") %>%
+  count(day, name = "n_trips") %>%
+  arrange(desc(n_trips)) %>%
+  slice(1)
+```
+
+ * The top 5 most visited stations by the Casual rider:
+ 
+```{r Top 5 stations, echo=TRUE}
+all_trips_v2 %>%
+  filter(user_type == "Casual rider") %>% 
+  group_by(start_station_name) %>% 
+  summarize(trips = n()) %>% 
+  ungroup() %>%
+  arrange(desc(trips)) %>%
+  slice_head( n = 5)
+```
+
+### **Visualization**
+
+ * In 2020 the number of trips taken by Casual riders has increased to more than 
+ double the number of trips taken in 2019
+
+```{r Trips by User Types plot, echo=TRUE}
+ggplot(all_trips_v2, aes(x = user_type, fill = user_type)) +
+  geom_bar(width = 0.7, alpha = 0.9) +
+  geom_label(
+    stat = "count",
+    aes(label = scales::comma(after_stat(count))),
+    vjust = -0.5,
+    size = 3.8,
+    fill = "white",
+    linewidth = 0.25,
+    label.padding = unit(0.15, "lines")) +
+  facet_wrap(~ year) +
+  scale_y_continuous(
+    labels = scales::comma,
+    expand = expansion(mult = c(0, 0.18))) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    title = "Number of Trips by Customer Type",
+    subtitle = "Total trips per customer type (2019 vs 2020)",
+    x = "Customer Type",
+    y = "Number of Trips",
+    caption = "Source: Divvy bikes Jan 2019 to Mar 2019 and Jan 2020 to Mar 2020") +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "none",
+    plot.subtitle = element_text(color = "gray40"),
+    plot.caption = element_text(hjust = 0),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "gray80", fill = NA, linewidth = 0.5))
+```
+
+ * The plot shows the average trip duration for Casual riders which is higher 
+ than the Annual members
+
+```{r Average duration plot, echo=TRUE}
+avg_trip_summ <- all_trips_v2 %>%
+  group_by(year, user_type) %>%
+  summarise(
+    n_trips  = n(),
+    avg_duration_min  = round(mean(trip_seconds / 60), 2),
+    .groups = "drop")
+
+ggplot(avg_trip_summ, aes(x = user_type, y = avg_duration_min, 
+                                           fill = user_type)) +
+  geom_col(width = 0.7) + 
+  geom_label(
+    aes(label = paste(avg_duration_min, "min")),
+    vjust = -0.5,
+    size = 3.3,
+    fill = "white",
+    linewidth = 0.25,
+    label.padding = unit(0.15, "lines"))+  facet_wrap(~ year) + 
+  #scale_y_continuous(breaks = seq(0, 60, 10)) + 
+  labs(
+    title = "Average Trip Duration for Customer Types", 
+    subtitle = "Comparison of average duration (2019 vs 2020)", 
+    x = "Customer Type", 
+    y = "Average Duration (minutes)",
+    caption = "Source: Divvy bikes Jan 2019 to Mar 2019 and Jan 2020 to Mar 2020") +
+  scale_fill_brewer(palette = "Set2") +
+  ylim(0,50)+
+  theme_minimal() + 
+  guides(fill = "none") +
+  theme(plot.subtitle = element_text(color = "gray40"),
+        legend.position = "top",
+        plot.caption = element_text(hjust = 0),
+        panel.border = element_rect(color = "gray80", fill = NA, linewidth = 0.5))
+```
+
+ * Annual members are mostly active during weekdays while Casual riders trips 
+ increase in the weekend
+
+```{r Weekly average summary, echo=TRUE}
+avg_weekly_summ_user <- all_trips_v2 %>%
+  group_by(year, user_type, day) %>%
+  summarise(
+    n_trips  = n(),
+    avg_duration_min  = round(mean(trip_seconds / 60), 2),
+    .groups = "drop") %>% 
+  mutate(
+    day = factor(day, levels = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")))
+
+ggplot(avg_weekly_summ_user, aes(x = day, y = n_trips, 
+                                                      color = user_type, 
+                                                      group = user_type)) +
+  geom_smooth(se = FALSE, linewidth = 1, span = 0.6) +
+  geom_point(size = 2, shape = 21, fill = "white", stroke = 1.5) +
+  scale_y_continuous(
+    labels = comma,
+    limits = c(0, 80000),
+    expand = expansion(mult = c(0, 0.1))) +
+  scale_color_brewer(palette = "Set2") +
+  labs(
+    title = "Weekly Trips Summary by Customer Type",
+    subtitle = "Weekly patterns",
+    x = "Day of Week",
+    y = "Number of Trips",
+    caption = "Source: Divvy bikes Jan 2019 to Mar 2019 and Jan 2020 to Mar 2020",
+    color = "Customer Type") +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.subtitle = element_text(color = "gray40"),
+    legend.position = "top",
+    plot.caption = element_text(hjust = 0),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "gray80", fill = NA, linewidth = 0.5))
+```
+
+ * The longest trip duration taken by Casual riders usually happens Wednesdays
+
+```{r Weekly average casual, echo=TRUE}
+avg_weekly_casual <- all_trips_v2 %>%
+  filter(user_type == "Casual rider") %>% 
+  group_by(day) %>%
+  summarise(
+    n_trips  = n(),
+    avg_duration_min  = round(mean(trip_seconds / 60), 2), # Minutes, 2 decimals
+    .groups = "drop") %>% 
+  mutate(
+    day = factor(day, levels = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"))) 
+
+ggplot(avg_weekly_casual, aes(y = avg_duration_min, 
+                                                      x = day, fill = day)) +
+  geom_col(width = 0.7) +
+  geom_label(
+    aes(label = paste(avg_duration_min, "min")),
+    vjust = -0.5,
+    size = 3.3,
+    fill = "white",
+    linewidth = 0.25,
+    label.padding = unit(0.15, "lines"))+
+  labs(
+    x = "Day of week", 
+    y = "Average duration (minutes)", 
+    title = "Average Trip Duration by Day", 
+    subtitle = "Average trip duration for Casual rider by day",
+    caption = "Source: Divvy bikes Jan 2019 to Mar 2019 and Jan 2020 to Mar 2020") +
+  scale_fill_brewer(palette = "Set2") +
+  ylim(0,60) +
+  theme_minimal() +
+  theme(plot.subtitle = element_text(color = "gray40"),
+        legend.position = "none",
+        plot.caption = element_text(hjust = 0),
+        panel.border = element_rect(color = "gray80", fill = NA, linewidth = 0.5))
+```
+
+ * Most busiest hours of the day for Casual riders is between 12pm to 5pm, and the
+ peak hour is 3pm
+
+```{r Peak hour, echo=TRUE}
+trips_binned <- all_trips_v2 %>%
+  filter(user_type == "Casual rider") %>%
+  mutate(
+    time_bin = floor_date(start_at, "1 hour"),
+    time_of_day = as_hms(time_bin)) %>%
+  count(time_of_day, name = "n") %>%
+  complete(time_of_day = hms(seq(0, 23*3600, 3600)), fill = list(n = 0))
+
+peak_hour <- trips_binned %>%
+  slice_max(n, n = 1) %>%
+  mutate(
+    peak_label = paste0(format(time_of_day, "%H:%M"), "\n",
+      scales::comma(n), " trips"))
+
+ggplot(trips_binned, aes(x = time_of_day, y = n)) +
+  geom_col(fill = "#42A5F5", width = 3400, alpha = 0.92) +  # ~1-hour width
+  geom_label(
+    data = peak_hour,
+    aes(label = peak_label),
+    vjust = -0.5,
+    size = 3.3,
+    fill = "white",
+    linewidth = 0.3,
+    label.padding = unit(0.25, "lines")) +
+  scale_x_time(
+    labels = time_format("%H:%M"),
+    breaks = hms(hours = 0:23),
+    expand = expansion(mult = c(0.01, 0.01))) +
+  #scale_y_continuous(labels = comma, expand = expansion(mult = c(0, 0.18))) +
+  ylim(0,10000) +
+  labs(
+    title = "Busiest Hours of Day",
+    subtitle = "Peak hours for Casual rider",
+    x = "Start Time (24h)",
+    y = "Number of Trips",
+    caption = "Source: Divvy bikes Jan 2019 to Mar 2019 and Jan 2020 to Mar 2020") +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.subtitle = element_text(color = "gray50"),
+    panel.grid.minor = element_blank(),
+    plot.caption = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 0))
+```
+
+ * The graph below show the top 5 stations most visited by Casual riders
+
+```{r Busiest stations, echo=TRUE}
+busiest_stations_casual <- all_trips_v2 %>%
+  filter(user_type == "Casual rider") %>% 
+  group_by(start_station_name) %>% 
+  summarize(trips = n()) %>% 
+  ungroup() %>%
+  arrange(desc(trips)) %>%
+  slice_head( n = 5)
+
+ggplot(busiest_stations_casual, 
+                               aes(x = trips, y = reorder(start_station_name, trips), 
+                                   fill = start_station_name)) +
+  geom_col(width = 0.7, alpha = 0.9) +
+  geom_label(
+    aes(label = paste(trips, "trips")),    
+    hjust = -0.1,
+    size = 3.8,
+    fill = "white",
+    linewidth = 0.25,
+    label.padding = unit(0.15, "lines")) +
+  scale_x_continuous(
+    labels = scales::comma,
+    expand = expansion(mult = c(0, 0.18))) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    title = "Top 5 Most Busiest Stations by Casual Rider",
+    subtitle = "Stations with the most trips started by Casual rider",
+    x = "Number of Trips",
+    y = "Station names") +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "none",
+    plot.subtitle = element_text(color = "gray40"),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "gray80", fill = NA, linewidth = 0.5))
+```
+
+## **Strategic Marketing Recommendations**
+
+1. **Introduce Weekend Subscriptions for Casual Riders**
+    
+    Leverage the **Weekly Trips Summary by Customer Type** graph, which shows higher bike usage by casual riders on weekends. Offer targeted weekend-only membership plans to convert casual riders into recurring members, emphasizing convenience and cost savings for weekend rides.
+    
+2. **Targeted Advertising at High-Traffic Stations for Casual Riders**
+    
+    Based on the **Top 5 Most Busiest Stations by Casual Rider** graph, prioritize advertising at stations with the highest casual rider traffic. Promote membership upgrades or special offers, highlighting benefits like unlimited rides or discounts tailored to frequent casual riders.
+    
+3. **Launch Midday Promotions for Peak Hours**
+    
+    The **Busiest Hours of Day** graph indicates peak bike usage by casual riders between 12 PM and 5 PM. Introduce time-specific promotions, such as discounted rates or bonus ride time for trips taken during these hours.
+    
+
+## **Outcomes and Impact**
+
+Through data analysis, Cyclistic can refine its marketing strategy to increase customer engagement of the bike-share services. By tailoring marketing efforts according to detailed customer behavior insights.
+
+## **Conclusion**
+
+The "Cyclistic Bike-Share Analysis for Targeted Marketing" case study underscores the significance of data in crafting precise marketing strategies. By understanding customer patterns and preferences, Cyclistic can deploy targeted campaigns that not only meet customer needs but also drive company growth and market competitiveness.
+  
+  
