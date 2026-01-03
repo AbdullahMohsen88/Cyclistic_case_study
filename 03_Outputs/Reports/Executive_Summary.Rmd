@@ -25,7 +25,7 @@ riders into long-term, profitable annual members.
 ![](images/weekly_trips_plot.png)
 
 -   **Ride Duration:** Casual riders have an average trip duration
-    nearly twice longer than members.
+     longer than members by far.
 
 ![](images/avg_trip_plot.png)
 
