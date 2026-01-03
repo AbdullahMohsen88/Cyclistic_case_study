@@ -40,7 +40,7 @@ members.
 ![](images/clipboard-5950620.png)
 
 -   **Ride Duration:** Casual riders have an average trip duration
-    more than twice longer than members.
+    longer than members by far.
 
 ![](images/clipboard-2022318269.png)
 
